@@ -1,0 +1,41 @@
+{
+  "name": "md-note-server",
+  "version": "1.0.0",
+  "description": "轻量级 Markdown 笔记服务器",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node server/index.js",
+    "build": "pkg . --targets node20-macos-arm64,node20-macos-x64,node20-linux-x64,node20-win-x64 --output dist/",
+    "build:mac": "pkg . --targets node20-macos-arm64 --output dist/md-note-server-mac",
+    "build:linux": "pkg . --targets node20-linux-x64 --output dist/md-note-server-linux",
+    "build:win": "pkg . --targets node20-win-x64 --output dist/md-note-server-win.exe",
+    "client:dev": "cd client && npm run dev",
+    "client:build": "cd client && npm run build"
+  },
+  "keywords": [
+    "markdown",
+    "notes",
+    "editor",
+    "server"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "jsonwebtoken": "^9.0.2",
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "marked": "^12.0.0"
+  },
+  "devDependencies": {
+    "@yao-pkg/pkg": "^5.11.0"
+  },
+  "pkg": {
+    "assets": [
+      "client/dist/**/*",
+      "config.json"
+    ],
+    "outputPath": "dist"
+  }
+}
