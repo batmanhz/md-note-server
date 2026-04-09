@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const { authMiddleware } = require('../middleware/auth');
 const { getConfig } = require('../utils/config');
 const {
@@ -12,7 +13,53 @@ const {
 
 const router = express.Router();
 
-// 所有文件操作都需要认证
+/**
+ * 原始文件访问（用于图片等静态资源）- 不需要认证
+ * GET /api/files/raw?path=文件路径
+ */
+router.get('/raw', (req, res) => {
+  try {
+    const config = getConfig();
+    const filePath = req.query.path;
+    
+    if (!filePath) {
+      return res.status(400).json({
+        success: false,
+        error: '文件路径不能为空'
+      });
+    }
+    
+    // 验证文件路径是否在笔记目录内
+    const notesDir = path.resolve(config.notesDir);
+    const targetPath = path.resolve(notesDir, filePath);
+    
+    if (!targetPath.startsWith(notesDir)) {
+      return res.status(403).json({
+        success: false,
+        error: '非法路径访问'
+      });
+    }
+    
+    // 发送文件
+    res.sendFile(targetPath, (err) => {
+      if (err) {
+        console.error('❌ 发送文件失败:', err);
+        res.status(404).json({
+          success: false,
+          error: '文件不存在'
+        });
+      }
+    });
+  } catch (error) {
+    console.error('❌ 访问文件失败:', error);
+    res.status(500).json({
+      success: false,
+      error: '访问文件失败'
+    });
+  }
+});
+
+// 所有其他文件操作都需要认证
 router.use(authMiddleware);
 
 /**
