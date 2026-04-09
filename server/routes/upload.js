@@ -101,13 +101,28 @@ router.post('/', upload.single('file'), (req, res) => {
       );
     }
 
-    // Vditor 要求的返回格式
+    // 计算相对于当前编辑文件的纯相对路径
+    let finalRelativePath;
+    
+    if (strategy === 'global') {
+      // 全局存储模式：计算相对于笔记目录的路径，然后再计算相对于当前编辑文件的路径
+      const filePathDir = path.dirname(filePath);
+      const filePathInNotesDir = path.join(notesDir, filePathDir);
+      finalRelativePath = path.relative(filePathInNotesDir, path.join(notesDir, relativePath));
+    } else {
+      // 相对存储模式：直接计算相对于当前编辑文件的路径
+      finalRelativePath = path.join('.assets', uniqueFileName);
+    }
+    
+    // 确保路径使用正斜杠，兼容不同操作系统
+    finalRelativePath = finalRelativePath.split(path.sep).join('/');
+    
     res.json({
       success: true,
       data: {
         errFiles: [],
         succMap: {
-          [file.originalname]: relativePath
+          [file.originalname]: finalRelativePath
         }
       }
     });
