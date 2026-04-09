@@ -77,30 +77,40 @@ onMounted(() => {
       enable: false // 禁用本地缓存
     },
     upload: {
+      max: 10 * 1024 * 1024,
       handler: async (files) => {
         try {
-          const formData = new FormData()
-          files.forEach(file => {
+          // 后端使用 upload.single('file')，一次只处理一个文件
+          // 这里我们逐个上传文件，然后合并结果
+          const results = { errFiles: [], succMap: {} }
+          
+          for (const file of files) {
+            const formData = new FormData()
             formData.append('file', file)
-          })
-          formData.append('filePath', props.filePath)
+            formData.append('filePath', props.filePath)
 
-          const token = localStorage.getItem('token')
-          const response = await fetch('/api/upload', {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${token}`
-            },
-            body: formData
-          })
+            const token = localStorage.getItem('token')
+            const response = await fetch('/api/upload', {
+              method: 'POST',
+              headers: {
+                'Authorization': `Bearer ${token}`
+              },
+              body: formData
+            })
 
-          const result = await response.json()
+            const result = await response.json()
 
-          if (result.success) {
-            return result.data
-          } else {
-            throw new Error(result.error || '上传失败')
+            if (result.success && result.data) {
+              // 合并成功的上传结果
+              if (result.data.succMap) {
+                Object.assign(results.succMap, result.data.succMap)
+              }
+            } else {
+              results.errFiles.push(file.name)
+            }
           }
+          
+          return results
         } catch (error) {
           console.error('上传失败:', error)
           throw error
