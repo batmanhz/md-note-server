@@ -46,6 +46,10 @@ function getDefaultConfig() {
     server: {
       host: '0.0.0.0',
       staticDir: './client/dist'
+    },
+    media: {
+      strategy: 'relative',
+      globalPath: './.media'
     }
   };
 }
@@ -79,6 +83,20 @@ function validateConfig() {
   // 确保静态文件目录是绝对路径
   if (config.server && !path.isAbsolute(config.server.staticDir)) {
     config.server.staticDir = path.resolve(__dirname, '../../', config.server.staticDir);
+  }
+  
+  // 验证并默认化 media 配置
+  if (!config.media) {
+    config.media = {
+      strategy: 'relative',
+      globalPath: './.media'
+    };
+    console.warn('⚠️  media 配置缺失，使用默认配置');
+  }
+  
+  // 确保 globalPath 是绝对路径
+  if (!path.isAbsolute(config.media.globalPath)) {
+    config.media.globalPath = path.resolve(__dirname, '../../', config.media.globalPath);
   }
 }
 

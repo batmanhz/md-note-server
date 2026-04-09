@@ -1,10 +1,20 @@
 # md-note-server
 
-轻量级 Markdown 笔记服务器。后端使用 Node.js + Express，前端使用 Vue 3 + Vite + CodeMirror 6。
+轻量级 Markdown 笔记服务器 V2.0 (Wiki 增强版)。后端使用 Node.js + Express，前端使用 Vue 3 + Vite + Vditor。
+
+## V2.0 新特性
+- ✨ **所见即所得编辑**：升级到 Vditor 编辑器，默认 SV 模式，更直观的编辑体验
+- 📤 **图片上传**：新增 `/api/upload` 接口，支持拖拽上传图片
+- 🗂️ **自动资产管理**：图片自动保存到当前笔记同级的 `.assets` 文件夹
+- ⚡ **自动保存**：1000ms 防抖自动保存，再也不用担心丢失内容
+- 🔗 **Wiki Link**：支持 `[[filename]]` 语法，快速创建笔记间的链接
 
 ## 功能特点
 - 🚀 **快速部署**：支持直接运行或打包为可执行文件。
-- 📝 **专注编辑**：基于 CodeMirror 6 的专业 Markdown 编辑体验。
+- 📝 **所见即所得**：基于 Vditor 的专业 Markdown 编辑器，默认 SV 模式。
+- 🖼️ **图片上传**：支持拖拽上传图片，自动保存到同级 `.assets` 文件夹。
+- 💾 **自动保存**：编辑内容自动保存，无需手动点击保存按钮。
+- 🔗 **Wiki 链接**：支持 `[[filename]]` 语法，快速跳转到其他笔记。
 - 📱 **响应式**：支持桌面端和移动端，随时记录灵感。
 - 📂 **树形管理**：清晰的文件夹层级管理。
 - 🔍 **快速搜索**：实时搜索文件名。
@@ -73,6 +83,8 @@ cp config.example.json config.json
 | `admin.username` | 管理员用户名 | `admin` |
 | `admin.password` | 管理员密码（请修改！） | - |
 | `server.host` | 监听地址 | `0.0.0.0` |
+| `media.strategy` | 图片存储策略：`relative`（相对）或 `global`（全局） | `relative` |
+| `media.globalPath` | 全局存储路径（仅当 strategy 为 `global` 时生效） | `./.media` |
 
 ### 配置示例 (config.example.json)
 
@@ -89,8 +101,21 @@ cp config.example.json config.json
   "server": {
     "host": "0.0.0.0",
     "staticDir": "./client/dist"
+  },
+  "media": {
+    "strategy": "relative",
+    "globalPath": "./.media"
   }
 }
 ```
+
+### 图片存储说明
+
+系统支持两种图片存储策略：
+
+- **relative（相对存储，默认）**：图片保存在当前笔记同级的 `.assets` 文件夹中，方便笔记迁移。
+- **global（全局存储）**：所有图片统一保存在 `globalPath` 指定的目录中，适合需要集中管理图片的场景。
+
+例如，将 `media.strategy` 设置为 `"global"`，所有图片将统一保存到 `./.media` 目录。
 
 > ⚠️ **安全提示**：`config.json` 包含敏感信息，已添加到 `.gitignore`，不会被上传到 Git 仓库。

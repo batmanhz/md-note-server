@@ -23,6 +23,7 @@ app.use((req, res, next) => {
 // API 路由
 app.use('/api/auth', require('./routes/auth'));
 app.use('/api/files', require('./routes/files'));
+app.use('/api/upload', require('./routes/upload'));
 
 // 健康检查
 app.get('/api/health', (req, res) => {

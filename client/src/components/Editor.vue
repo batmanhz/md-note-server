@@ -1,15 +1,13 @@
 <template>
   <div class="editor-container">
-    <div ref="editorRef" class="cm-editor"></div>
+    <div ref="editorRef" class="vditor-editor"></div>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted, onBeforeUnmount, watch } from 'vue'
-import { EditorView, basicSetup } from 'codemirror'
-import { EditorState } from '@codemirror/state'
-import { markdown } from '@codemirror/lang-markdown'
-import { oneDark } from '@codemirror/theme-one-dark'
+import Vditor from 'vditor'
+import 'vditor/dist/index.css'
 
 const props = defineProps({
   modelValue: {
@@ -19,56 +17,146 @@ const props = defineProps({
   theme: {
     type: String,
     default: 'light'
+  },
+  filePath: {
+    type: String,
+    default: ''
   }
 })
 
-const emit = defineEmits(['update:modelValue', 'change'])
+const emit = defineEmits(['update:modelValue', 'change', 'save'])
 
 const editorRef = ref(null)
-let view = null
+let vditor = null
+let saveTimeout = null
+
+// 防抖自动保存
+const debouncedSave = (content) => {
+  if (saveTimeout) {
+    clearTimeout(saveTimeout)
+  }
+  
+  saveTimeout = setTimeout(() => {
+    emit('save', content)
+  }, 1000)
+}
 
 onMounted(() => {
-  const startState = EditorState.create({
-    doc: props.modelValue,
-    extensions: [
-      basicSetup,
-      markdown(),
-      props.theme === 'dark' ? oneDark : [],
-      EditorView.updateListener.of((update) => {
-        if (update.docChanged) {
-          const content = update.state.doc.toString()
-          emit('update:modelValue', content)
-          emit('change', content)
-        }
-      })
-    ]
-  })
+  const options = {
+    height: '100%',
+    mode: 'sv', // 所见即所得模式
+    toolbar: [
+      'headings',
+      'bold',
+      'italic',
+      'strike',
+      '|',
+      'link',
+      '|',
+      'list',
+      'ordered-list',
+      'check',
+      '|',
+      'table',
+      '|',
+      'upload',
+      '|',
+      'outline',
+      'both',
+      'edit-mode',
+      'code',
+      'code-theme',
+      'content-theme',
+      'export',
+      'fullscreen',
+      'info',
+      'preview',
+      'devtools'
+    ],
+    cache: {
+      enable: false // 禁用本地缓存
+    },
+    upload: {
+      handler: async (files) => {
+        try {
+          const formData = new FormData()
+          files.forEach(file => {
+            formData.append('file', file)
+          })
+          formData.append('filePath', props.filePath)
 
-  view = new EditorView({
-    state: startState,
-    parent: editorRef.value
-  })
+          const token = localStorage.getItem('token')
+          const response = await fetch('/api/upload', {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            },
+            body: formData
+          })
+
+          const result = await response.json()
+
+          if (result.success) {
+            return result.data
+          } else {
+            throw new Error(result.error || '上传失败')
+          }
+        } catch (error) {
+          console.error('上传失败:', error)
+          throw error
+        }
+      }
+    },
+    input: (value) => {
+      emit('update:modelValue', value)
+      emit('change', value)
+      debouncedSave(value)
+    },
+    after: () => {
+      // 初始化完成后设置初始值
+      if (props.modelValue) {
+        vditor.setValue(props.modelValue)
+      }
+    },
+    theme: props.theme === 'dark' ? 'dark' : 'classic',
+    placeholder: '开始写作...'
+  }
+
+  vditor = new Vditor(editorRef.value, options)
 })
 
 onBeforeUnmount(() => {
-  if (view) {
-    view.destroy()
+  if (vditor) {
+    vditor.destroy()
+  }
+  if (saveTimeout) {
+    clearTimeout(saveTimeout)
   }
 })
 
 // 监听内容变化（外部更新）
 watch(() => props.modelValue, (newVal) => {
-  if (view && newVal !== view.state.doc.toString()) {
-    view.dispatch({
-      changes: { from: 0, to: view.state.doc.length, insert: newVal }
-    })
+  if (vditor && newVal !== vditor.getValue()) {
+    vditor.setValue(newVal)
   }
 })
 
 // 监听主题变化
 watch(() => props.theme, (newTheme) => {
-  // 简便处理：销毁重建或使用 compartment 更新（这里选择简单的销毁重建示例）
-  // 生产环境建议使用 Compartment 以动态切换主题而不丢失焦点
+  if (vditor) {
+    vditor.setTheme(newTheme === 'dark' ? 'dark' : 'classic')
+  }
+})
+
+// 导出方法供外部调用
+defineExpose({
+  getValue: () => vditor ? vditor.getValue() : '',
+  setValue: (value) => {
+    if (vditor) {
+      vditor.setValue(value)
+    }
+  },
+  getHTML: () => vditor ? vditor.getHTML() : ''
 })
 </script>
 
@@ -82,17 +170,16 @@ watch(() => props.theme, (newTheme) => {
   border-radius: 4px;
 }
 
-.cm-editor {
+.vditor-editor {
   height: 100%;
 }
 
-:deep(.cm-editor) {
+:deep(.vditor) {
   height: 100%;
+}
+
+:deep(.vditor-ir) {
   font-family: 'Fira Code', 'Roboto Mono', monospace;
   font-size: 14px;
-}
-
-:deep(.cm-scroller) {
-  height: 100% !important;
 }
 </style>

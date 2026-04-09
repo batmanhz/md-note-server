@@ -47,11 +47,13 @@
         <div class="editor-header">
           <div class="file-path">{{ filesStore.currentFile.path }}</div>
           <div class="header-actions">
-            <button class="btn btn-ghost btn-sm" @click="isSplitView = !isSplitView">
-              {{ isSplitView ? '代码模式' : '分屏模式' }}
-            </button>
+            <div class="save-status">
+              <span v-if="isSaving" class="status-saving">保存中...</span>
+              <span v-else-if="autoSaved" class="status-saved">已自动保存</span>
+              <span v-else-if="isModified" class="status-modified">有未保存的修改</span>
+            </div>
             <button class="btn btn-primary btn-sm" :disabled="!isModified" @click="handleSave">
-              保存
+              手动保存
             </button>
             <button class="btn btn-danger btn-sm" @click="handleDelete">
               删除
@@ -59,27 +61,14 @@
           </div>
         </div>
 
-        <div class="workspace-body" :class="{ 'split-view': isSplitView }">
-          <div class="editor-pane" :style="isSplitView ? { flex: '0 0 ' + splitPosition + '%', width: splitPosition + '%' } : {}">
-            <Editor 
-              v-model="editorContent" 
-              @change="handleContentChange"
-            />
-          </div>
-          <div 
-            v-if="isSplitView" 
-            class="split-divider"
-            :class="{ dragging: isResizing }"
-            @mousedown="startResize"
-          >
-            <div class="split-divider-handle"></div>
-          </div>
-          <div 
-            v-if="isSplitView" 
-            class="preview-pane markdown-body" 
-            :style="{ flex: '0 0 ' + (100 - splitPosition) + '%', width: (100 - splitPosition) + '%' }"
-            v-html="previewHtml"
-          ></div>
+        <div class="workspace-body">
+          <Editor 
+            v-model="editorContent" 
+            :file-path="filesStore.currentFile?.path || ''"
+            :theme="theme"
+            @change="handleContentChange"
+            @save="handleAutoSave"
+          />
         </div>
       </div>
       <div v-else class="empty-state">
@@ -98,11 +87,10 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
 import { useFilesStore } from '../stores/files'
-import { marked } from 'marked'
 import FileTree from '../components/FileTree.vue'
 import Editor from '../components/Editor.vue'
 
@@ -114,15 +102,10 @@ const searchQuery = ref('')
 const editorContent = ref('')
 const originalContent = ref('')  // 原始内容，用于 Dirty Check
 const isModified = ref(false)
-const isSplitView = ref(true)
-
-// 分屏比例相关
-const SPLIT_STORAGE_KEY = 'md-notes-split-position'
-const MIN_PANE_WIDTH = 20  // 最小 20%
-const MAX_PANE_WIDTH = 80  // 最大 80%
-const DEFAULT_SPLIT = 50   // 默认 50:50
-const splitPosition = ref(DEFAULT_SPLIT)
-const isResizing = ref(false)
+const isSaving = ref(false)
+const autoSaved = ref(false)
+const autoSaveTimeout = ref(null)
+const theme = ref('light')  // 可以从配置或用户设置中读取
 
 const filteredFiles = computed(() => {
   if (!searchQuery.value) return filesStore.files
@@ -144,10 +127,6 @@ const filteredFiles = computed(() => {
   return filterList(filesStore.files)
 })
 
-const previewHtml = computed(() => {
-  return marked.parse(editorContent.value || '')
-})
-
 // 处理浏览器关闭/刷新时的离开提示
 const handleBeforeUnload = (e) => {
   if (isModified.value) {
@@ -161,20 +140,18 @@ onMounted(() => {
   filesStore.fetchFiles()
   window.addEventListener('beforeunload', handleBeforeUnload)
   
-  // 加载保存的分屏位置
-  const savedPosition = localStorage.getItem(SPLIT_STORAGE_KEY)
-  if (savedPosition) {
-    const pos = parseInt(savedPosition, 10)
-    if (!isNaN(pos) && pos >= MIN_PANE_WIDTH && pos <= MAX_PANE_WIDTH) {
-      splitPosition.value = pos
-    }
+  // 从本地存储加载主题设置
+  const savedTheme = localStorage.getItem('md-notes-theme')
+  if (savedTheme) {
+    theme.value = savedTheme
   }
 })
 
 onBeforeUnmount(() => {
   window.removeEventListener('beforeunload', handleBeforeUnload)
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
+  if (autoSaveTimeout.value) {
+    clearTimeout(autoSaveTimeout.value)
+  }
 })
 
 async function handleSelectFile(item) {
@@ -188,23 +165,62 @@ async function handleSelectFile(item) {
     editorContent.value = file.content
     originalContent.value = file.content  // 保存原始内容
     isModified.value = false
+    autoSaved.value = false
   }
 }
 
 function handleContentChange() {
   // Dirty Check: 对比当前内容与原始内容
   isModified.value = editorContent.value !== originalContent.value
+  autoSaved.value = false
 }
 
+// 自动保存处理（防抖）
+function handleAutoSave(content) {
+  if (autoSaveTimeout.value) {
+    clearTimeout(autoSaveTimeout.value)
+  }
+  
+  isSaving.value = true
+  
+  autoSaveTimeout.value = setTimeout(async () => {
+    await performSave(content)
+    isSaving.value = false
+    autoSaved.value = true
+    
+    // 3秒后隐藏"已自动保存"提示
+    setTimeout(() => {
+      autoSaved.value = false
+    }, 3000)
+  }, 500)
+}
+
+// 手动保存
 async function handleSave() {
   if (!filesStore.currentFile) return
+  isSaving.value = true
   
-  const res = await filesStore.saveFile(filesStore.currentFile.path, editorContent.value)
+  await performSave(editorContent.value)
+  
+  isSaving.value = false
+  autoSaved.value = true
+  
+  setTimeout(() => {
+    autoSaved.value = false
+  }, 3000)
+}
+
+// 执行保存操作
+async function performSave(content) {
+  if (!filesStore.currentFile) return
+  
+  const res = await filesStore.saveFile(filesStore.currentFile.path, content)
   if (res.success) {
-    originalContent.value = editorContent.value  // 更新原始内容
+    originalContent.value = content  // 更新原始内容
     isModified.value = false
   } else {
-    alert('保存失败: ' + res.error)
+    console.error('保存失败:', res.error)
+    // 可以添加错误提示 UI
   }
 }
 
@@ -242,6 +258,7 @@ async function handleDelete() {
     editorContent.value = ''
     originalContent.value = ''
     isModified.value = false
+    autoSaved.value = false
   } else {
     alert('删除失败: ' + res.error)
   }
@@ -250,71 +267,6 @@ async function handleDelete() {
 function handleLogout() {
   authStore.logout()
   router.push('/login')
-}
-
-// 分屏拖动相关函数
-function startResize(e) {
-  // 阻止默认行为和事件冒泡
-  e.preventDefault()
-  e.stopPropagation()
-  
-  isResizing.value = true
-  
-  // 添加全局事件监听
-  document.addEventListener('mousemove', handleResize, { passive: false })
-  document.addEventListener('mouseup', stopResize)
-  
-  // 设置拖动时的样式
-  document.body.style.cursor = 'col-resize'
-  document.body.style.userSelect = 'none'
-  
-  console.log('[SplitDivider] 开始拖动，当前位置:', splitPosition.value)
-}
-
-function handleResize(e) {
-  if (!isResizing.value) return
-  
-  e.preventDefault()
-  
-  const workspaceBody = document.querySelector('.workspace-body')
-  if (!workspaceBody) {
-    console.warn('[SplitDivider] 找不到 workspace-body 元素')
-    return
-  }
-  
-  const rect = workspaceBody.getBoundingClientRect()
-  const newPosition = ((e.clientX - rect.left) / rect.width) * 100
-  
-  // 限制在最小和最大宽度之间
-  const clampedPosition = Math.min(
-    Math.max(newPosition, MIN_PANE_WIDTH),
-    MAX_PANE_WIDTH
-  )
-  
-  // 只有位置变化时才更新
-  if (Math.abs(clampedPosition - splitPosition.value) > 0.1) {
-    splitPosition.value = clampedPosition
-    console.log('[SplitDivider] 拖动中，新位置:', clampedPosition.toFixed(1) + '%')
-  }
-}
-
-function stopResize() {
-  if (!isResizing.value) return
-  
-  isResizing.value = false
-  
-  // 移除全局事件监听
-  document.removeEventListener('mousemove', handleResize)
-  document.removeEventListener('mouseup', stopResize)
-  
-  // 恢复默认样式
-  document.body.style.cursor = ''
-  document.body.style.userSelect = ''
-  
-  // 保存用户偏好
-  localStorage.setItem(SPLIT_STORAGE_KEY, splitPosition.value.toString())
-  
-  console.log('[SplitDivider] 停止拖动，最终位置:', splitPosition.value)
 }
 </script>
 
@@ -407,88 +359,36 @@ function stopResize() {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 60%;
+  max-width: 40%;
 }
 
 .header-actions {
   display: flex;
-  gap: 8px;
+  gap: 12px;
+  align-items: center;
+}
+
+.save-status {
+  font-size: 12px;
+  margin-right: 8px;
+}
+
+.status-saving {
+  color: var(--primary-color, #4a90d9);
+}
+
+.status-saved {
+  color: var(--success-color, #52c41a);
+}
+
+.status-modified {
+  color: var(--warning-color, #faad14);
 }
 
 .workspace-body {
   flex: 1;
   display: flex;
   overflow: hidden;
-}
-
-.editor-pane {
-  flex: 1;
-  height: 100%;
-  min-width: 200px;  /* 最小宽度保护 */
-  overflow: hidden;  /* 防止内容溢出影响布局 */
-}
-
-/* 分屏模式下的编辑器面板 - 覆盖 flex: 1 */
-.workspace-body.split-view .editor-pane {
-  flex: 0 0 auto;  /* 在分屏模式下使用固定宽度 */
-}
-
-.split-divider {
-  width: 16px;  /* 增加点击区域宽度，更容易定位 */
-  height: 100%;
-  background-color: var(--border-color);
-  cursor: col-resize;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  position: relative;
-  z-index: 10;  /* 确保在最上层 */
-  /* 添加边框增强可见性 */
-  border-left: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
-  border-right: 1px solid color-mix(in srgb, var(--border-color) 50%, transparent);
-}
-
-.split-divider:hover {
-  background-color: color-mix(in srgb, var(--primary-color, #4a90d9) 40%, transparent);
-  border-color: color-mix(in srgb, var(--primary-color, #4a90d9) 50%, transparent);
-}
-
-.split-divider.dragging {
-  background-color: var(--primary-color, #4a90d9) !important;
-  border-color: var(--primary-color, #4a90d9) !important;
-}
-
-.split-divider-handle {
-  width: 6px;
-  height: 60px;  /* 增加手柄高度，更容易看到 */
-  background-color: var(--text-muted, #999);
-  border-radius: 3px;
-  opacity: 0.7;  /* 提高默认可见性 */
-  pointer-events: none;  /* 关键：让点击事件穿透到父元素 */
-  transition: opacity 0.2s ease, height 0.2s ease;
-}
-
-.split-divider:hover .split-divider-handle,
-.split-divider.dragging .split-divider-handle {
-  opacity: 1;
-  height: 80px;  /* 悬停时手柄变长 */
-  background-color: var(--primary-color, #4a90d9);
-}
-
-.preview-pane {
-  flex: 1;
-  height: 100%;
-  overflow-y: auto;
-  padding: 24px;
-  background: var(--bg-color);
-  border-left: 1px solid var(--border-color);
-  min-width: 200px;  /* 最小宽度保护 */
-}
-
-/* 分屏模式下的预览面板 - 覆盖 flex: 1 */
-.workspace-body.split-view .preview-pane {
-  flex: 0 0 auto;  /* 在分屏模式下使用固定宽度 */
 }
 
 .empty-state {
@@ -517,32 +417,5 @@ function stopResize() {
 .btn-icon:hover {
   background-color: var(--border-color);
   color: var(--text-primary);
-}
-
-/* Markdown Styles for Preview */
-.markdown-body {
-  line-height: 1.6;
-  font-size: 15px;
-  color: var(--text-primary);
-}
-
-:deep(.markdown-body h1), :deep(.markdown-body h2) {
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 8px;
-  margin-top: 24px;
-  margin-bottom: 16px;
-}
-
-:deep(.markdown-body pre) {
-  background-color: var(--bg-secondary);
-  padding: 16px;
-  border-radius: 6px;
-  overflow: auto;
-}
-
-:deep(.markdown-body blockquote) {
-  border-left: 4px solid var(--border-color);
-  padding-left: 16px;
-  color: var(--text-secondary);
 }
 </style>
